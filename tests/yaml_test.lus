@@ -1,0 +1,304 @@
+local ROOT = string.match(TEST_DIR, "^(.*)[/\\][^/\\]*$")
+pledge("load", "fs:read=" .. ROOT .. "/*")
+package.path = ROOT .. "/?.lus;" .. package.path
+
+local yaml = require("yaml")
+
+local function err_of(text)
+    local ok, err = catch yaml.decode(text)
+    assert(not ok, "expected an error")
+    assert(yaml.iserror(err), tostring(err))
+    return err
+end
+
+local function scalars_test()
+    local v = yaml.decode([[
+int: 42
+neg: -17
+hex: 0x1F
+oct: 0o17
+float: 3.25
+exp: 1e3
+inf: .inf
+ninf: -.inf
+t: true
+f: False
+yes: yes
+nul: null
+tilde: ~
+empty:
+str: hello world
+num_str: "42"
+single: 'it''s'
+]])
+    assert(v.int == 42 and math.type(v.int) == "integer")
+    assert(v.neg == -17 and v.hex == 31 and v.oct == 15)
+    assert(v.float == 3.25 and math.type(v.exp) == "float" and v.exp == 1000)
+    assert(v.inf == math.huge and v.ninf == -math.huge)
+    assert(v.t == true and v.f == false)
+    assert(v.yes == "yes", "YAML 1.2 keeps yes as a string")
+    assert(v.nul == nil and v.tilde == nil and v.empty == nil)
+    assert(v.str == "hello world")
+    assert(v.num_str == "42")
+    assert(v.single == "it's")
+    local nan = yaml.decode("x: .nan").x
+    assert(nan ~= nan)
+end
+
+local function double_quoted_escapes_test()
+    local v = yaml.decode([[s: "tab\there\nline \"q\" \u00e9 \x41 \\"]])
+    assert(v.s == "tab\there\nline \"q\" é A \\")
+end
+
+local function nested_block_test()
+    local v = yaml.decode([[
+server:
+  host: localhost
+  ports:
+    - 80
+    - 443
+  tls:
+    enabled: true
+users:
+- name: ada
+  roles: [admin, dev]
+- name: lin
+  roles: []
+matrix:
+  - - 1
+    - 2
+  - - 3
+]])
+    assert(v.server.host == "localhost")
+    assert(v.server.ports[2] == 443)
+    assert(v.server.tls.enabled == true)
+    assert(v.users[1].name == "ada" and v.users[1].roles[2] == "dev")
+    assert(#v.users[2].roles == 0)
+    assert(v.matrix[1][2] == 2 and v.matrix[2][1] == 3)
+end
+
+local function flow_collections_test()
+    local v = yaml.decode([[
+a: [1, "two", {x: 1, y: [true, null]}, 'q']
+b: { name: lus, tags: [x, y], empty: {} }
+multi: [
+  1,  # one
+  2,
+]
+]])
+    assert(v.a[1] == 1 and v.a[2] == "two" and v.a[3].x == 1 and v.a[3].y[1] == true and v.a[4] == "q")
+    assert(v.b.name == "lus" and v.b.tags[2] == "y" and next(v.b.empty) == nil)
+    assert(#v.multi == 2 and v.multi[2] == 2)
+    assert(yaml.decode("[a: 1]")[1].a == 1)
+end
+
+local function block_scalars_test()
+    local v = yaml.decode([[
+literal: |
+  line one
+    indented
+  line three
+folded: >
+  folded
+  text
+
+  new paragraph
+strip: |-
+  no newline
+keep: |+
+  kept
+
+clip: |
+  one
+
+after: x
+]])
+    assert(v.literal == "line one\n  indented\nline three\n")
+    assert(v.folded == "folded text\nnew paragraph\n")
+    assert(v.strip == "no newline")
+    assert(v.keep == "kept\n\n")
+    assert(v.clip == "one\n")
+    assert(v.after == "x")
+end
+
+local function plain_multiline_test()
+    local v = yaml.decode([[
+text: this is a long
+  plain scalar
+  over lines
+quoted: "first
+  second"
+next: 1
+]])
+    assert(v.text == "this is a long plain scalar over lines")
+    assert(v.quoted == "first second")
+    assert(v.next == 1)
+end
+
+local function comments_test()
+    local v = yaml.decode([[
+# leading comment
+a: 1 # trailing
+b: "x # not a comment"
+c: x#y
+list:
+  # inside
+  - 1
+]])
+    assert(v.a == 1 and v.b == "x # not a comment" and v.c == "x#y" and v.list[1] == 1)
+end
+
+local function anchors_and_merge_test()
+    local v = yaml.decode([[
+base: &base
+  host: localhost
+  port: 80
+dev:
+  <<: *base
+  port: 8080
+list: &l [1, 2]
+same: *l
+name: &n lus
+again: *n
+]])
+    assert(v.dev.host == "localhost" and v.dev.port == 8080)
+    assert(v.same == v.list, "an alias is the same table")
+    assert(v.again == "lus")
+    local e = err_of("a: *missing")
+    assert(e.message:find("unknown alias", 1, true))
+end
+
+local function keys_test()
+    local v = yaml.decode([[
+"quoted key": 1
+'single': 2
+with spaces: 3
+1: one
+]])
+    assert(v["quoted key"] == 1 and v.single == 2 and v["with spaces"] == 3)
+    assert(v["1"] == "one", "plain keys are strings")
+    local e = err_of("a: 1\na: 2\n")
+    assert(e.message == "yaml: line 2: duplicate key 'a'")
+end
+
+local function tags_test()
+    local v = yaml.decode("a: !!str 123\nb: !!float 1\nc: !!int '7'\n")
+    assert(v.a == "123" and math.type(v.b) == "float" and v.c == 7)
+    assert(err_of("a: !!python/object x").message:find("unsupported tag", 1, true))
+    assert(err_of("a: !!int x").message:find("not an integer", 1, true))
+end
+
+local function documents_test()
+    local docs = yaml.decode_all("---\na: 1\n---\n- x\n...\n--- 5\n")
+    assert(docs.n == 3)
+    assert(docs[1].a == 1 and docs[2][1] == "x" and docs[3] == 5)
+    assert(yaml.decode("%YAML 1.2\n---\nk: v\n").k == "v")
+    assert(yaml.decode("") == nil)
+    assert(yaml.decode("just text") == "just text")
+end
+
+local function errors_test()
+    assert(err_of("a:\n\t- 1\n").message:find("tabs may not indent", 1, true))
+    assert(err_of("a: [1, 2").message:find("unterminated flow", 1, true))
+    assert(err_of('a: "open').message:find("unterminated quoted", 1, true))
+    local e = err_of("a: 1\n  b: 2\n")
+    assert(e.line == 2)
+end
+
+local function crlf_and_bom_test()
+    local v = yaml.decode("\u{FEFF}a: 1\r\nb: 2\r\n")
+    assert(v.a == 1 and v.b == 2)
+end
+
+local function encode_test()
+    local text = yaml.encode({ name = "lus", version = 2, tags = { "a", "b" }, nested = { ok = true, ratio = 0.5 } })
+    assert(text == [[
+name: lus
+nested:
+  ok: true
+  ratio: 0.5
+tags:
+  - a
+  - b
+version: 2
+]], text)
+end
+
+local function encode_quoting_test()
+    local text = yaml.encode({ "true", "42", "", "a: b", " lead", "x #y", "-dash", "- item", "null", "plain" })
+    local back = yaml.decode(text)
+    assert(back[1] == "true" and back[2] == "42" and back[3] == "" and back[4] == "a: b")
+    assert(back[5] == " lead" and back[6] == "x #y" and back[7] == "-dash" and back[8] == "- item")
+    assert(back[9] == "null" and back[10] == "plain")
+    assert(text:find("\n%- plain\n"))
+end
+
+local function encode_block_strings_test()
+    for _, s in ipairs({ "a\nb", "a\nb\n", "a\nb\n\n" }) do
+        local back = yaml.decode(yaml.encode({ s = s }))
+        assert(back.s == s, s)
+    end
+end
+
+local function encode_order_and_list_of_maps_test()
+    local text = yaml.encode({ { id = 1, name = "a" }, { id = 2, name = "b" } }, { order = { "name" } })
+    assert(text == "- name: a\n  id: 1\n- name: b\n  id: 2\n", text)
+end
+
+local function round_trip_test()
+    local value = {
+        title = "Config",
+        servers = { { host = "a.example", ports = { 80, 443 } }, { host = "b.example", ports = { 22 } } },
+        flags = { debug = false, level = 3, ratio = 1.5, big = 1e20 },
+        notes = "multi\nline\n",
+        empty = {},
+        quote = 'say "hi"',
+    }
+    local back = yaml.decode(yaml.encode(value))
+    assert(back.title == "Config")
+    assert(back.servers[2].ports[1] == 22)
+    assert(back.flags.debug == false and back.flags.level == 3 and back.flags.ratio == 1.5 and back.flags.big == 1e20)
+    assert(back.notes == "multi\nline\n")
+    assert(next(back.empty) == nil)
+    assert(back.quote == 'say "hi"')
+end
+
+local function encode_errors_test()
+    local t = {}
+    t.self = t
+    assert(not catch yaml.encode(t))
+    assert(not catch yaml.encode({ f = print }))
+    assert(yaml.encode(5) == "5\n")
+    assert(yaml.encode(1.0) == "1.0\n")
+end
+
+local function workflow_test()
+    local v = yaml.decode([[
+name: CI
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          zig build -Doptimize=ReleaseSafe
+          ./zig-out/bin/lus test
+        env:
+          LUS_JIT: "off"
+]])
+    assert(v.name == "CI")
+    assert(v.on.push.branches[1] == "main")
+    assert(v.jobs.test["runs-on"] == "${{ matrix.os }}")
+    assert(v.jobs.test.strategy.matrix.os[2] == "macos-latest")
+    assert(v.jobs.test.steps[1].uses == "actions/checkout@v4")
+    assert(v.jobs.test.steps[2].run == "zig build -Doptimize=ReleaseSafe\n./zig-out/bin/lus test\n")
+    assert(v.jobs.test.steps[2].env.LUS_JIT == "off")
+end
