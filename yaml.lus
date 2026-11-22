@@ -1,13 +1,13 @@
 --- Reads and writes YAML 1.2 with the core schema.
 ---
---- `yaml.decode` reads the first document of a text and `yaml.decode_all`
---- reads every document. `yaml.encode` writes a value in block style. The
+--- `yaml.decode` reads the first document of a text, `yaml.decode_all` reads
+--- every document, and `yaml.encode` writes a value in block style. The
 --- reader accepts block and flow collections, every scalar style, comments,
 --- anchors and aliases, and merge keys. It builds only tables, strings,
 --- numbers, and booleans, so a document cannot construct other values.
 ---
 --- @package yaml
---- @version 0.1.0
+--- @version 1.0.0
 --- @lus 2.0
 --- @license 0BSD
 --- @repository https://github.com/lus-lang/atmos-yaml
@@ -22,7 +22,8 @@ local function fail(line, message)
     error(setmetatable({ line = line, message = `yaml: line $line: $message` }, YamlError), 0)
 end
 
---- Returns true if `value` is an error object that `decode` raised.
+--- Returns true if `value` is an error object that `decode` or `decode_all`
+--- raised.
 ---
 --- The error object has a `message` and the `line` of the problem.
 --- @param value any The value to test.
@@ -342,7 +343,7 @@ function Parser:flow(text)
         if nxt == nil then
             fail(line_no, "unterminated flow collection")
         end
-        src = src .. "\n" .. nxt.text
+        src = `$src\n$(nxt.text)`
     end
     local function skip()
         while true do
@@ -616,7 +617,7 @@ function Parser:block_scalar(header, parent_indent)
     if chomp == "strip" then
         return body
     elseif chomp == "keep" then
-        return body .. "\n" .. string.rep("\n", trailing)
+        return `$body\n$(string.rep("\n", trailing))`
     end
     return body .. "\n"
 end
@@ -971,15 +972,15 @@ end
 
 --- Parses the first document of `text` and returns its value.
 ---
---- Mappings become tables with string keys, sequences become lists, and
---- scalars resolve with the core schema of YAML 1.2: `null`, `~`, and an
---- empty value give `nil`, `true` and `false` give booleans, and numbers give
---- integers or floats. Every other plain scalar is a string, so `yes` and
---- `on` stay strings. A null value leaves its key out of the table and a hole
---- in a list, as `fromjson` does. An alias refers to the same table as its
---- anchor. A malformed document, a duplicate key, a tab used as indentation,
---- an unknown alias, or a tag outside the core schema raises an error object
---- whose message starts with `yaml: line N:`.
+--- A mapping becomes a table with string keys, a sequence becomes a list, and
+--- a scalar resolves with the core schema of YAML 1.2. That schema reads
+--- `null`, `~`, and an empty value as `nil`, `true` and `false` as booleans,
+--- and numbers as integers or floats. Every other plain scalar is a string,
+--- so `yes` and `on` stay strings. As in `fromjson`, a null value leaves its
+--- key out of a mapping and leaves a hole in a list. An alias refers to the
+--- same table as its anchor. A malformed document, a duplicate key, a tab
+--- used as indentation, an unknown alias, or a tag outside the core schema
+--- raises an error object whose message starts with `yaml: line N:`.
 --- @param text string The YAML text.
 --- @return any
 function M.decode(text)
@@ -1025,14 +1026,15 @@ local function needs_quotes(s)
 end
 
 local function quote(s)
-    return '"' .. s:gsub('[\\"%c]', function(c)
+    local escaped = s:gsub('[\\"%c]', function(c)
         if c == "\\" then return "\\\\" end
         if c == '"' then return '\\"' end
         if c == "\n" then return "\\n" end
         if c == "\t" then return "\\t" end
         if c == "\r" then return "\\r" end
         return string.format("\\x%02X", string.byte(c))
-    end) .. '"'
+    end)
+    return `"$escaped"`
 end
 
 local function scalar_text(v)
@@ -1148,16 +1150,16 @@ local function encode(v, indent, step, order, seen, out)
                 local sub = {}
                 encode(item, indent + step, step, order, seen, sub)
                 -- The first line of the item follows the dash.
-                sub[1] = pad .. "- " .. sub[1]:sub(indent + step + 1)
+                sub[1] = `$pad- $(sub[1]:sub(indent + step + 1))`
                 for _, l in ipairs(sub) do
                     out[#out + 1] = l
                 end
             elseif type(item) == "table" then
-                out[#out + 1] = pad .. "- " .. (is_list(item) and "[]" or "{}")
+                out[#out + 1] = `$pad- $(is_list(item) and "[]" or "{}")`
             elseif type(item) == "string" and block_string(item, pad .. string.rep(" ", step)) then
-                out[#out + 1] = pad .. "- " .. block_string(item, pad .. string.rep(" ", step))
+                out[#out + 1] = `$pad- $(block_string(item, pad .. string.rep(" ", step)))`
             else
-                out[#out + 1] = pad .. "- " .. scalar_text(item)
+                out[#out + 1] = `$pad- $(scalar_text(item))`
             end
         end
     else
@@ -1165,14 +1167,14 @@ local function encode(v, indent, step, order, seen, out)
             local item = v[k]
             local key = scalar_text(type(k) == "string" and k or tostring(k))
             if type(item) == "table" and next(item) ~= nil then
-                out[#out + 1] = pad .. key .. ":"
+                out[#out + 1] = `$pad$key:`
                 encode(item, indent + step, step, order, seen, out)
             elseif type(item) == "table" then
-                out[#out + 1] = pad .. key .. ": {}"
+                out[#out + 1] = `$pad$key: {}`
             elseif type(item) == "string" and block_string(item, pad .. string.rep(" ", step)) then
-                out[#out + 1] = pad .. key .. ": " .. block_string(item, pad .. string.rep(" ", step))
+                out[#out + 1] = `$pad$key: $(block_string(item, pad .. string.rep(" ", step)))`
             else
-                out[#out + 1] = pad .. key .. ": " .. scalar_text(item)
+                out[#out + 1] = `$pad$key: $(scalar_text(item))`
             end
         end
     end
@@ -1182,13 +1184,13 @@ end
 --- Writes `value` as a YAML document and returns the text.
 ---
 --- Tables are written in block style. A table whose keys are the integers 1
---- to `n` is a sequence, and every other table is a mapping. An empty table
---- is written as `{}`. Mapping keys are sorted, except that the keys listed
---- in `options.order` come first in that order. `options.indent` sets the
---- spaces per level and defaults to 2. Strings are quoted when they would
---- otherwise read as another type or as YAML syntax, and strings with line
---- breaks use literal blocks. A function, a userdata, or a table that
---- contains itself raises an error. The text ends with a line break.
+--- to `n` is written as a sequence. Every other table is a mapping. An empty
+--- table is written as `{}`. Mapping keys are sorted, except that the keys
+--- listed in `options.order` come first in that order. `options.indent` sets
+--- the spaces per level and defaults to 2. A string is quoted when it would
+--- otherwise read as another type or as YAML syntax. A string with line
+--- breaks is written as a literal block. A function, a userdata, or a table
+--- that contains itself raises an error. The text ends with a line break.
 --- @param value any The value to write.
 --- @param options table? `indent` and `order`.
 --- @return string
