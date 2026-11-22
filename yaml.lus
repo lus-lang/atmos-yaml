@@ -49,18 +49,15 @@ local function resolve(text)
     local first = text:sub(1, 1)
     if first:match("[%d%+%-%.]") then
         if text:match("^[-+]?%d+$") then
-            local n = math.tointeger(tonumber(text))
-            if n then
+            if n = math.tointeger(tonumber(text)) then
                 return n, true
             end
             return tonumber(text), true
         end
-        local hex = text:match("^0x(%x+)$")
-        if hex then
+        if hex = text:match("^0x(%x+)$") then
             return math.tointeger(tonumber(hex, 16)), true
         end
-        local oct = text:match("^0o([0-7]+)$")
-        if oct then
+        if oct = text:match("^0o([0-7]+)$") then
             return math.tointeger(tonumber(oct, 8)), true
         end
         if text:match("^[-+]?%.[iI]nf$") or text:match("^[-+]?%.INF$") then
@@ -78,7 +75,7 @@ local function resolve(text)
 end
 
 local TAGS = {
-    ["!!str"] = function(v, raw) return raw end,
+    ["!!str"] = function(_v, raw) return raw end,
     ["!!int"] = function(v, raw, line)
         local n = math.type(v) == "integer" and v or nil
         if n == nil then fail(line, `'$raw' is not an integer`) end
@@ -127,10 +124,9 @@ local function fold_lines(parts)
     return table.concat(out)
 end
 
-local function unescape_double(text, line)
+local function unescape_double(text, _line)
     return (text:gsub("\\(.)", function(c)
-        local e = ESCAPES[c]
-        if e then
+        if e = ESCAPES[c] then
             return e
         end
         return "\\" .. c
@@ -353,8 +349,7 @@ function Parser:flow(text)
             local s = src:match("^[ \t\n]*", pos)
             pos = pos + #s
             if src:sub(pos, pos) == "#" then
-                local nl = src:find("\n", pos, true)
-                if nl then
+                if nl = src:find("\n", pos, true) then
                     pos = nl + 1
                 else
                     src = src:sub(1, pos - 1)
@@ -368,7 +363,7 @@ function Parser:flow(text)
         end
     end
     local value
-    local function scalar(in_map_key)
+    local function scalar(_in_map_key)
         local c = src:sub(pos, pos)
         if c == '"' or c == "'" then
             -- Quoted scalars inside flow collections stay on the joined text.
@@ -425,13 +420,11 @@ function Parser:flow(text)
     local function anchor_and_tag()
         local anchor, tag
         while true do
-            local a = src:match("^&([^%s,%[%]{}]+)%s*", pos)
-            if a then
+            if a = src:match("^&([^%s,%[%]{}]+)%s*", pos) then
                 anchor = a
                 pos = pos + #src:match("^&[^%s,%[%]{}]+%s*", pos)
             else
-                local t = src:match("^(![^%s,%[%]{}]*)%s*", pos)
-                if t then
+                if t = src:match("^(![^%s,%[%]{}]*)%s*", pos) then
                     tag = t
                     pos = pos + #src:match("^![^%s,%[%]{}]*%s*", pos)
                 else
@@ -533,8 +526,7 @@ function Parser:flow(text)
     value = node()
     -- The rest after the collection, on the last line.
     local rest = src:sub(pos)
-    local last_nl = rest:find("\n[^\n]*$")
-    if last_nl then
+    if last_nl = rest:find("\n[^\n]*$") then
         rest = rest:sub(last_nl + 1)
     end
     return value, rest
@@ -543,7 +535,6 @@ end
 -- Block scalars --------------------------------------------------------------------
 
 function Parser:block_scalar(header, parent_indent)
-    local line_no = self.i
     local style = header:sub(1, 1)
     local chomp, explicit = "clip", nil
     for c in header:sub(2):gmatch(".") do
@@ -781,7 +772,7 @@ function Parser:sequence(indent)
             -- A compact entry such as "- key: value" or "- - x" continues at
             -- the column of its content, so the dash becomes indentation.
             local col = indent + 2 + (#rest - #rest:match("^ *(.*)$"))
-            local anchor, tag, after = properties(body)
+            local anchor, _, after = properties(body)
             local inner = after
             if key_colon(inner) or is_seq_entry(inner, 0) then
                 local prefix = col + (#body - #inner)
@@ -848,7 +839,7 @@ function Parser:mapping(indent)
         if q == '"' or q == "'" then
             key = self:quoted(raw_key, 1)
         else
-            local anchor, tag, k = properties(raw_key)
+            local _, _, k = properties(raw_key)
             key = k
         end
         if seen[key] and key ~= "<<" then
@@ -868,7 +859,7 @@ function Parser:mapping(indent)
                 value = self:block(indent + 1, indent)
             end
         else
-            local anchor, tag, after = properties(rest)
+            local anchor, _, after = properties(rest)
             if after == "" then
                 self.i = self.i + 1
                 self:skip_blank()
