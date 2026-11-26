@@ -86,7 +86,9 @@ multi: [
   2,
 ]
 ]])
-    assert(v.a[1] == 1 and v.a[2] == "two" and v.a[3].x == 1 and v.a[3].y[1] == true and v.a[4] == "q")
+    assert(
+        v.a[1] == 1 and v.a[2] == "two" and v.a[3].x == 1 and v.a[3].y[1] == true and v.a[4] == "q"
+    )
     assert(v.b.name == "lus" and v.b.tags[2] == "y" and next(v.b.empty) == nil)
     assert(#v.multi == 2 and v.multi[2] == 2)
     assert(yaml.decode("[a: 1]")[1].a == 1)
@@ -211,7 +213,12 @@ local function crlf_and_bom_test()
 end
 
 local function encode_test()
-    local text = yaml.encode({ name = "lus", version = 2, tags = { "a", "b" }, nested = { ok = true, ratio = 0.5 } })
+    local text = yaml.encode({
+        name = "lus",
+        version = 2,
+        tags = { "a", "b" },
+        nested = { ok = true, ratio = 0.5 },
+    })
     assert(text == [[
 name: lus
 nested:
@@ -225,7 +232,18 @@ version: 2
 end
 
 local function encode_quoting_test()
-    local text = yaml.encode({ "true", "42", "", "a: b", " lead", "x #y", "-dash", "- item", "null", "plain" })
+    local text = yaml.encode({
+        "true",
+        "42",
+        "",
+        "a: b",
+        " lead",
+        "x #y",
+        "-dash",
+        "- item",
+        "null",
+        "plain",
+    })
     local back = yaml.decode(text)
     assert(back[1] == "true" and back[2] == "42" and back[3] == "" and back[4] == "a: b")
     assert(back[5] == " lead" and back[6] == "x #y" and back[7] == "-dash" and back[8] == "- item")
@@ -241,14 +259,19 @@ local function encode_block_strings_test()
 end
 
 local function encode_order_and_list_of_maps_test()
-    local text = yaml.encode({ { id = 1, name = "a" }, { id = 2, name = "b" } }, { order = { "name" } })
+    local text = yaml.encode({ { id = 1, name = "a" }, { id = 2, name = "b" } }, {
+        order = { "name" },
+    })
     assert(text == "- name: a\n  id: 1\n- name: b\n  id: 2\n", text)
 end
 
 local function round_trip_test()
     local value = {
         title = "Config",
-        servers = { { host = "a.example", ports = { 80, 443 } }, { host = "b.example", ports = { 22 } } },
+        servers = {
+            { host = "a.example", ports = { 80, 443 } },
+            { host = "b.example", ports = { 22 } },
+        },
         flags = { debug = false, level = 3, ratio = 1.5, big = 1e20 },
         notes = "multi\nline\n",
         empty = {},
@@ -257,7 +280,12 @@ local function round_trip_test()
     local back = yaml.decode(yaml.encode(value))
     assert(back.title == "Config")
     assert(back.servers[2].ports[1] == 22)
-    assert(back.flags.debug == false and back.flags.level == 3 and back.flags.ratio == 1.5 and back.flags.big == 1e20)
+    assert(
+        back.flags.debug == false
+            and back.flags.level == 3
+            and back.flags.ratio == 1.5
+            and back.flags.big == 1e20
+    )
     assert(back.notes == "multi\nline\n")
     assert(next(back.empty) == nil)
     assert(back.quote == 'say "hi"')

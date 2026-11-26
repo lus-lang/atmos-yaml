@@ -6,6 +6,21 @@
 --- anchors and aliases, and merge keys. It builds only tables, strings,
 --- numbers, and booleans, so a document cannot construct other values.
 ---
+--- The following example reads a server configuration, then writes the
+--- settings of a blog.
+---
+--- ```lus nocheck
+--- local yaml = require("https://atmosp.here/2.0/yaml.lus")
+---
+--- local config = yaml.decode("server:\n  port: 8080\n  hosts: [web1, web2]\n")
+--- print(config.server.port)  --> 8080
+--- io.write(yaml.encode({ title = "Field notes", tags = { "travel", "food" } }))
+--- --> tags:
+--- -->   - travel
+--- -->   - food
+--- --> title: Field notes
+--- ```
+---
 --- @package yaml
 --- @version 1.0.0
 --- @lus 2.0
@@ -16,7 +31,10 @@ local M = {}
 
 local YamlError = {}
 YamlError.__index = YamlError
-YamlError.__tostring = function(e) return e.message end
+
+YamlError.__tostring = function(e)
+    return e.message
+end
 
 local function fail(line, message)
     error(setmetatable({ line = line, message = `yaml: line $line: $message` }, YamlError), 0)
@@ -35,7 +53,14 @@ end
 -- Scalars ------------------------------------------------------------------------
 
 local NULLS = { [""] = true, ["~"] = true, null = true, Null = true, NULL = true }
-local BOOLS = { ["true"] = true, True = true, TRUE = true, ["false"] = false, False = false, FALSE = false }
+local BOOLS = {
+    ["true"] = true,
+    True = true,
+    TRUE = true,
+    ["false"] = false,
+    False = false,
+    FALSE = false,
+}
 
 -- Resolves a plain scalar with the rules of the core schema. Returns the
 -- value and true, or nil and false for a null.
@@ -43,63 +68,104 @@ local function resolve(text)
     if NULLS[text] then
         return nil, false
     end
+
     local b = BOOLS[text]
+
     if b ~= nil then
         return b, true
     end
+
     local first = text:sub(1, 1)
+
     if first:match("[%d%+%-%.]") then
         if text:match("^[-+]?%d+$") then
             if n = math.tointeger(tonumber(text)) then
                 return n, true
             end
+
             return tonumber(text), true
         end
+
         if hex = text:match("^0x(%x+)$") then
             return math.tointeger(tonumber(hex, 16)), true
         end
+
         if oct = text:match("^0o([0-7]+)$") then
             return math.tointeger(tonumber(oct, 8)), true
         end
+
         if text:match("^[-+]?%.[iI]nf$") or text:match("^[-+]?%.INF$") then
             return text:sub(1, 1) == "-" and -math.huge or math.huge, true
         end
+
         if text == ".nan" or text == ".NaN" or text == ".NAN" then
             return 0 / 0, true
         end
-        if text:match("^[-+]?%d*%.?%d+[eE][-+]?%d+$") or text:match("^[-+]?%d+%.%d*$")
-            or text:match("^[-+]?%.%d+$") or text:match("^[-+]?%d+%.?%d*[eE][-+]?%d+$") then
+
+        if text:match("^[-+]?%d*%.?%d+[eE][-+]?%d+$")
+            or text:match("^[-+]?%d+%.%d*$")
+            or text:match("^[-+]?%.%d+$")
+            or text:match("^[-+]?%d+%.?%d*[eE][-+]?%d+$") then
             return tonumber(text) + 0.0, true
         end
     end
+
     return text, true
 end
 
 local TAGS = {
-    ["!!str"] = function(_v, raw) return raw end,
+    ["!!str"] = function(_v, raw)
+        return raw
+    end,
     ["!!int"] = function(v, raw, line)
-        local n = math.type(v) == "integer" and v or nil
-        if n == nil then fail(line, `'$raw' is not an integer`) end
-        return n
+        if math.type(v) ~= "integer" then
+            fail(line, `'$raw' is not an integer`)
+        end
+
+        return v
     end,
     ["!!float"] = function(v, raw, line)
-        if type(v) ~= "number" then fail(line, `'$raw' is not a float`) end
+        if type(v) ~= "number" then
+            fail(line, `'$raw' is not a float`)
+        end
+
         return v + 0.0
     end,
     ["!!bool"] = function(v, raw, line)
-        if type(v) ~= "boolean" then fail(line, `'$raw' is not a boolean`) end
+        if type(v) ~= "boolean" then
+            fail(line, `'$raw' is not a boolean`)
+        end
+
         return v
     end,
     ["!!null"] = function(v, raw, line)
-        if v ~= nil then fail(line, `'$raw' is not null`) end
+        if v ~= nil then
+            fail(line, `'$raw' is not null`)
+        end
+
         return nil
     end,
 }
 
 local ESCAPES = {
-    ["0"] = "\0", a = "\a", b = "\b", t = "\t", ["\t"] = "\t", n = "\n", v = "\v", f = "\f",
-    r = "\r", e = "\27", [" "] = " ", ['"'] = '"', ["/"] = "/", ["\\"] = "\\",
-    N = "\u{85}", _ = "\u{A0}", L = "\u{2028}", P = "\u{2029}",
+    ["0"] = "\0",
+    a = "\a",
+    b = "\b",
+    t = "\t",
+    ["\t"] = "\t",
+    n = "\n",
+    v = "\v",
+    f = "\f",
+    r = "\r",
+    e = "\27",
+    [" "] = " ",
+    ['"'] = '"',
+    ["/"] = "/",
+    ["\\"] = "\\",
+    N = "\u{85}",
+    _ = "\u{A0}",
+    L = "\u{2028}",
+    P = "\u{2029}",
 }
 
 -- Folds the lines of a multi-line flow scalar: a single line break becomes a
@@ -107,21 +173,26 @@ local ESCAPES = {
 local function fold_lines(parts)
     local out = {}
     local pending = 0
+
     for i, part in ipairs(parts) do
         local text = i > 1 and part:match("^%s*(.-)$") or part
+
         if i < #parts then
             text = text:match("^(.-)%s*$")
         end
+
         if i > 1 and text == "" and i < #parts then
             pending = pending + 1
         else
             if i > 1 then
                 out[#out + 1] = pending > 0 and string.rep("\n", pending) or " "
             end
+
             pending = 0
             out[#out + 1] = text
         end
     end
+
     return table.concat(out)
 end
 
@@ -130,10 +201,15 @@ local function unescape_double(text, _line)
         if e = ESCAPES[c] then
             return e
         end
-        return "\\" .. c
-    end):gsub("\\x(%x%x)", function(h) return utf8.char(tonumber(h, 16)) end)
-        :gsub("\\u(%x%x%x%x)", function(h) return utf8.char(tonumber(h, 16)) end)
-        :gsub("\\U(%x%x%x%x%x%x%x%x)", function(h) return utf8.char(tonumber(h, 16)) end))
+
+        return `\\$c`
+    end):gsub("\\x(%x%x)", function(h)
+        return string.char(tonumber(h, 16))
+    end):gsub("\\u(%x%x%x%x)", function(h)
+        return string.char(tonumber(h, 16))
+    end):gsub("\\U(%x%x%x%x%x%x%x%x)", function(h)
+        return string.char(tonumber(h, 16))
+    end))
 end
 
 -- Parser state -------------------------------------------------------------------
@@ -144,12 +220,15 @@ Parser.__index = Parser
 local function new_parser(text)
     local lines = {}
     text = text:gsub("\r\n?", "\n")
+
     if text:sub(1, 1) == "\u{FEFF}" then
         text = text:sub(2)
     end
+
     if text:sub(-1) ~= "\n" then
         text = text .. "\n"
     end
+
     for line in text:gmatch("(.-)\n") do
         if line:find("\t", 1, true) and line:match("^ *\t") then
             -- Tabs may not indent. They are allowed inside content.
@@ -158,6 +237,7 @@ local function new_parser(text)
             lines[#lines + 1] = { text = line }
         end
     end
+
     return setmetatable({ lines = lines, i = 1, anchors = {} }, Parser)
 end
 
@@ -172,22 +252,24 @@ end
 
 function Parser:skip_blank()
     local lines = self.lines
+
     while self.i <= #lines and is_blank(lines[self.i].text) do
         self.i = self.i + 1
     end
 end
 
 function Parser:current()
-    local line = self.lines[self.i]
-    return line and line.text
+    return self.lines[self.i]?.text
 end
 
 local function strip_comment(text)
     -- Removes a comment that starts with " #" outside quotes.
     local quote
     local i = 1
+
     while i <= #text do
         local c = text:sub(i, i)
+
         if quote then
             if c == "\\" and quote == '"' then
                 i = i + 1
@@ -205,8 +287,10 @@ local function strip_comment(text)
         elseif c == "#" and (i == 1 or text:sub(i - 1, i - 1):match("%s")) then
             return text:sub(1, i - 1):match("^(.-)%s*$")
         end
+
         i = i + 1
     end
+
     return text:match("^(.-)%s*$")
 end
 
@@ -215,10 +299,13 @@ end
 local function key_colon(text)
     local i, n = 1, #text
     local first = text:sub(1, 1)
+
     if first == '"' or first == "'" then
         local j = 2
+
         while j <= n do
             local c = text:sub(j, j)
+
             if c == "\\" and first == '"' then
                 j = j + 1
             elseif c == first then
@@ -228,33 +315,44 @@ local function key_colon(text)
                     break
                 end
             end
+
             j = j + 1
         end
+
         local rest = text:sub(j + 1)
         local spaces = #rest:match("^ *")
+
         if rest:sub(spaces + 1, spaces + 1) == ":" then
             local after = rest:sub(spaces + 2, spaces + 2)
+
             if after == "" or after == " " then
                 return j + spaces + 1
             end
         end
+
         return nil
     end
+
     if first == "[" or first == "{" or first == "#" or first == "|" or first == ">" then
         return nil
     end
+
     while i <= n do
         local c = text:sub(i, i)
+
         if c == ":" then
             local after = text:sub(i + 1, i + 1)
+
             if after == "" or after == " " then
                 return i
             end
         elseif c == "#" and i > 1 and text:sub(i - 1, i - 1) == " " then
             return nil
         end
+
         i = i + 1
     end
+
     return nil
 end
 
@@ -271,32 +369,39 @@ function Parser:quoted(text, pos)
     local buf = {}
     local i = pos + 1
     local line_no = self.i
+
     while true do
         if i > #text then
             parts[#parts + 1] = table.concat(buf)
             buf = {}
             self.i = self.i + 1
             local nxt = self.lines[self.i]
+
             if nxt == nil then
                 fail(line_no, "unterminated quoted scalar")
             end
+
             text = nxt.text
             i = 1
         else
             local c = text:sub(i, i)
+
             if q == '"' and c == "\\" then
                 if i == #text then
                     -- An escaped line break joins the lines without a space.
                     self.i = self.i + 1
                     local nxt = self.lines[self.i]
+
                     if nxt == nil then
                         fail(line_no, "unterminated quoted scalar")
                     end
+
                     text = nxt.text:match("^%s*(.-)$")
                     i = 1
                 else
                     buf[#buf + 1] = text:sub(i, i + 1)
                     local nc = text:sub(i + 1, i + 1)
+
                     if nc == "x" then
                         buf[#buf + 1] = text:sub(i + 2, i + 3)
                         i = i + 2
@@ -307,6 +412,7 @@ function Parser:quoted(text, pos)
                         buf[#buf + 1] = text:sub(i + 2, i + 9)
                         i = i + 8
                     end
+
                     i = i + 2
                 end
             elseif c == q then
@@ -316,9 +422,11 @@ function Parser:quoted(text, pos)
                 else
                     parts[#parts + 1] = table.concat(buf)
                     local value = #parts == 1 and parts[1] or fold_lines(parts)
+
                     if q == '"' then
                         value = unescape_double(value, line_no)
                     end
+
                     return value, text:sub(i + 1)
                 end
             else
@@ -337,18 +445,23 @@ function Parser:flow(text)
     local line_no = self.i
     local pos = 1
     local src = text
+
     local function more()
         self.i = self.i + 1
         local nxt = self.lines[self.i]
+
         if nxt == nil then
             fail(line_no, "unterminated flow collection")
         end
+
         src = `$src\n$(nxt.text)`
     end
+
     local function skip()
         while true do
             local s = src:match("^[ \t\n]*", pos)
             pos = pos + #s
+
             if src:sub(pos, pos) == "#" then
                 if nl = src:find("\n", pos, true) then
                     pos = nl + 1
@@ -363,18 +476,24 @@ function Parser:flow(text)
             end
         end
     end
+
     local value
+
     local function scalar(_in_map_key)
         local c = src:sub(pos, pos)
+
         if c == '"' or c == "'" then
             -- Quoted scalars inside flow collections stay on the joined text.
             local q = c
             local j = pos + 1
+
             while true do
                 if j > #src then
                     more()
                 end
+
                 local d = src:sub(j, j)
+
                 if d == "\\" and q == '"' then
                     j = j + 2
                 elseif d == q then
@@ -387,78 +506,99 @@ function Parser:flow(text)
                     j = j + 1
                 end
             end
+
             local raw = src:sub(pos + 1, j - 1)
             pos = j + 1
             local parts = {}
+
             for l in (raw .. "\n"):gmatch("(.-)\n") do
                 parts[#parts + 1] = l
             end
+
             local v = #parts == 1 and parts[1] or fold_lines(parts)
+
             if q == '"' then
                 return unescape_double(v, line_no), true
             end
+
             return (v:gsub("''", "'")), true
         end
+
         local start = pos
+
         while pos <= #src do
             local d = src:sub(pos, pos)
+
             if d == "," or d == "]" or d == "}" or d == "\n" then
                 break
             end
+
             if d == ":" and (src:sub(pos + 1, pos + 1):match("[%s,%]}]") or pos == #src) then
                 break
             end
+
             if d == "#" and src:sub(pos - 1, pos - 1):match("%s") then
                 break
             end
+
             pos = pos + 1
         end
+
         local raw = src:sub(start, pos - 1):match("^(.-)%s*$")
         local v = resolve(raw)
         return v, false, raw
     end
+
     local node
+
     local function anchor_and_tag()
         local anchor, tag
+
         while true do
             if a = src:match("^&([^%s,%[%]{}]+)%s*", pos) then
                 anchor = a
                 pos = pos + #src:match("^&[^%s,%[%]{}]+%s*", pos)
+            elseif t = src:match("^(![^%s,%[%]{}]*)%s*", pos) then
+                tag = t
+                pos = pos + #src:match("^![^%s,%[%]{}]*%s*", pos)
             else
-                if t = src:match("^(![^%s,%[%]{}]*)%s*", pos) then
-                    tag = t
-                    pos = pos + #src:match("^![^%s,%[%]{}]*%s*", pos)
-                else
-                    return anchor, tag
-                end
+                return anchor, tag
             end
         end
     end
+
     node = function()
         skip()
         local anchor, tag = anchor_and_tag()
         local c = src:sub(pos, pos)
         local result
+
         if c == "*" then
             local name = src:match("^%*([^%s,%[%]{}]+)", pos)
             pos = pos + #name + 1
+
             if self.anchors[name] == nil and not self.anchor_null[name] then
                 fail(line_no, `unknown alias '*$name'`)
             end
+
             return self.anchors[name]
         elseif c == "[" then
             pos = pos + 1
             result = {}
             local n = 0
+
             while true do
                 skip()
+
                 if src:sub(pos, pos) == "]" then
                     pos = pos + 1
                     break
                 end
+
                 n = n + 1
                 result[n] = node()
                 skip()
+
                 -- A single pair inside a sequence: [a: 1]
                 if src:sub(pos, pos) == ":" then
                     pos = pos + 1
@@ -466,7 +606,9 @@ function Parser:flow(text)
                     result[n] = { [tostring(k)] = node() }
                     skip()
                 end
+
                 local d = src:sub(pos, pos)
+
                 if d == "," then
                     pos = pos + 1
                 elseif d ~= "]" then
@@ -476,29 +618,36 @@ function Parser:flow(text)
         elseif c == "{" then
             pos = pos + 1
             result = {}
+
             while true do
                 skip()
+
                 if src:sub(pos, pos) == "}" then
                     pos = pos + 1
                     break
                 end
+
                 local k, quoted, raw = scalar(true)
                 local key = quoted and k or raw
                 skip()
                 local v
+
                 if src:sub(pos, pos) == ":" then
                     pos = pos + 1
                     skip()
                     local d = src:sub(pos, pos)
+
                     if d == "," or d == "}" then
                         v = nil
                     else
                         v = node()
                     end
                 end
+
                 result[key] = v
                 skip()
                 local d = src:sub(pos, pos)
+
                 if d == "," then
                     pos = pos + 1
                 elseif d ~= "}" then
@@ -507,89 +656,119 @@ function Parser:flow(text)
             end
         else
             local v, quoted, raw = scalar(false)
+
             if tag then
                 local f = TAGS[tag]
+
                 if f == nil then
                     fail(line_no, `unsupported tag '$tag'`)
                 end
+
                 v = f(quoted and v or resolve(raw), quoted and v or raw, line_no)
             end
+
             result = v
         end
+
         if anchor then
             self.anchors[anchor] = result
+
             if result == nil then
                 self.anchor_null[anchor] = true
             end
         end
+
         return result
     end
+
     value = node()
     -- The rest after the collection, on the last line.
     local rest = src:sub(pos)
+
     if last_nl = rest:find("\n[^\n]*$") then
         rest = rest:sub(last_nl + 1)
     end
+
     return value, rest
 end
 
 -- Block scalars --------------------------------------------------------------------
 
+-- How a block scalar treats the line breaks at its end: `clip` keeps one,
+-- `strip` keeps none, and `keep` keeps them all.
+local Chomp = enum clip, strip, keep end
+
 function Parser:block_scalar(header, parent_indent)
     local style = header:sub(1, 1)
-    local chomp, explicit = "clip", nil
+    local chomp, explicit = Chomp.clip, nil
+
     for c in header:sub(2):gmatch(".") do
         if c == "-" then
-            chomp = "strip"
+            chomp = Chomp.strip
         elseif c == "+" then
-            chomp = "keep"
+            chomp = Chomp.keep
         elseif c:match("%d") then
             explicit = tonumber(c)
         elseif c ~= " " then
             break
         end
     end
+
     local lines = self.lines
     self.i = self.i + 1
     local indent = explicit and (parent_indent + explicit) or nil
     local content = {}
+
     while self.i <= #lines do
         local text = lines[self.i].text
+
         if text:match("^%s*$") then
             content[#content + 1] = ""
+
             if indent and #text > indent then
                 content[#content] = text:sub(indent + 1)
             end
+
             self.i = self.i + 1
         else
             local ind = indent_of(text)
+
             if indent == nil then
                 if ind <= parent_indent then
                     break
                 end
+
                 indent = ind
             end
+
             if ind < indent then
                 break
             end
+
             content[#content + 1] = text:sub(indent + 1)
             self.i = self.i + 1
         end
     end
+
     -- Trailing empty lines belong to the chomping.
     local trailing = 0
+
     while #content > 0 and content[#content] == "" do
         content[#content] = nil
         trailing = trailing + 1
     end
+
     local body
+
     if style == "|" then
         body = table.concat(content, "\n")
     else
         local out = {}
         local prev_more = false
+
         for i, l in ipairs(content) do
             local more = l:match("^[ \t]") ~= nil
+
             if i > 1 then
                 if l == "" then
                     out[#out + 1] = "\n"
@@ -601,25 +780,32 @@ function Parser:block_scalar(header, parent_indent)
                     out[#out + 1] = " "
                 end
             end
+
             if l ~= "" then
                 out[#out + 1] = l
             end
+
             prev_more = more
         end
+
         body = table.concat(out)
     end
+
     if #content == 0 then
-        if chomp == "keep" then
+        if chomp == Chomp.keep then
             return string.rep("\n", trailing)
         end
+
         return ""
     end
-    if chomp == "strip" then
+
+    if chomp == Chomp.strip then
         return body
-    elseif chomp == "keep" then
+    elseif chomp == Chomp.keep then
         return `$body\n$(string.rep("\n", trailing))`
     end
-    return body .. "\n"
+
+    return `$body\n`
 end
 
 -- Block structure --------------------------------------------------------------------
@@ -627,17 +813,14 @@ end
 -- Splits the properties `&anchor` and `!tag` off the front of a value.
 local function properties(text)
     local anchor, tag
+
     while true do
-        local a, rest = text:match("^&([^%s]+)%s*(.*)$")
-        if a then
+        if a, rest = text:match("^&([^%s]+)%s*(.*)$") then
             anchor, text = a, rest
+        elseif t, after = text:match("^(![^%s]*)%s*(.*)$") then
+            tag, text = t, after
         else
-            local t, rest2 = text:match("^(![^%s]*)%s*(.*)$")
-            if t then
-                tag, text = t, rest2
-            else
-                return anchor, tag, text
-            end
+            return anchor, tag, text
         end
     end
 end
@@ -646,13 +829,17 @@ function Parser:apply_tag(tag, value, raw, line_no)
     if tag == nil then
         return value
     end
+
     if tag == "!!map" or tag == "!!seq" then
         return value
     end
+
     local f = TAGS[tag]
+
     if f == nil then
         fail(line_no, `unsupported tag '$tag'`)
     end
+
     return f(value, raw, line_no)
 end
 
@@ -663,15 +850,18 @@ function Parser:inline(text, parent_indent)
     local anchor, tag
     anchor, tag, text = properties(text)
     local value
+
     if text == "" then
         self.i = self.i + 1
         value = self:block(parent_indent + 1, parent_indent)
         value = self:apply_tag(tag, value, value, line_no)
     elseif text:sub(1, 1) == "*" then
         local name = text:match("^%*(%S+)")
+
         if self.anchors[name] == nil and not self.anchor_null[name] then
             fail(line_no, `unknown alias '*$name'`)
         end
+
         value = self.anchors[name]
         self.i = self.i + 1
     elseif text:sub(1, 1) == "|" or text:sub(1, 1) == ">" then
@@ -680,17 +870,22 @@ function Parser:inline(text, parent_indent)
     elseif text:sub(1, 1) == "[" or text:sub(1, 1) == "{" then
         local rest
         value, rest = self:flow(text)
+
         if not is_blank(rest) then
             fail(self.i, "unexpected text after a flow collection")
         end
+
         self.i = self.i + 1
     elseif text:sub(1, 1) == '"' or text:sub(1, 1) == "'" then
         local rest
         value, rest = self:quoted(text, 1)
+
         if not is_blank(rest) then
             fail(self.i, "unexpected text after a quoted scalar")
         end
+
         self.i = self.i + 1
+
         if tag and tag ~= "!!str" then
             value = self:apply_tag(tag, resolve(value), value, line_no)
         end
@@ -700,21 +895,29 @@ function Parser:inline(text, parent_indent)
         local ended_by_comment = strip_comment(text) ~= text:match("^(.-)%s*$")
         self.i = self.i + 1
         local lines = self.lines
+
         while not ended_by_comment and self.i <= #lines do
             local l = lines[self.i].text
+
             if l:match("^%s*$") then
                 -- An empty line inside a plain scalar keeps a line break,
                 -- if the scalar continues after it.
                 local j = self.i
+
                 while j <= #lines and lines[j].text:match("^%s*$") do
                     j = j + 1
                 end
+
                 local after = lines[j]
-                if after and indent_of(after.text) > parent_indent and not is_blank(after.text)
+
+                if after
+                    and indent_of(after.text) > parent_indent
+                    and not is_blank(after.text)
                     and key_colon(after.text:sub(indent_of(after.text) + 1)) == nil then
                     for _ = self.i, j - 1 do
                         parts[#parts + 1] = ""
                     end
+
                     self.i = j
                 else
                     break
@@ -722,19 +925,27 @@ function Parser:inline(text, parent_indent)
             else
                 local ind = indent_of(l)
                 local body = l:sub(ind + 1)
-                if ind <= parent_indent or body:sub(1, 1) == "#" or key_colon(body)
-                    or body == "---" or body == "..." then
+
+                if ind <= parent_indent
+                    or body:sub(1, 1) == "#"
+                    or key_colon(body)
+                    or body == "---"
+                    or body == "..." then
                     break
                 end
+
                 local stripped = strip_comment(body)
                 parts[#parts + 1] = stripped
                 self.i = self.i + 1
+
                 if stripped ~= body:match("^(.-)%s*$") then
                     break
                 end
             end
         end
+
         local raw = #parts == 1 and parts[1] or fold_lines(parts)
+
         if tag == "!!str" then
             value = raw
         else
@@ -742,30 +953,38 @@ function Parser:inline(text, parent_indent)
             value = self:apply_tag(tag, value, raw, line_no)
         end
     end
+
     if anchor then
         self.anchors[anchor] = value
+
         if value == nil then
             self.anchor_null[anchor] = true
         end
     end
+
     return value
 end
 
 function Parser:sequence(indent)
     local out, n = {}, 0
     local lines = self.lines
+
     while true do
         self:skip_blank()
         local text = self:current()
+
         if text == nil or indent_of(text) ~= indent or not is_seq_entry(text, indent) then
             break
         end
+
         if lines[self.i].tab then
             fail(self.i, "tabs may not indent")
         end
+
         local rest = text:sub(indent + 3)
         n = n + 1
         local body = rest:match("^ *(.-)$")
+
         if body == "" or body:sub(1, 1) == "#" then
             self.i = self.i + 1
             out[n] = self:block(indent + 1, indent)
@@ -775,19 +994,23 @@ function Parser:sequence(indent)
             local col = indent + 2 + (#rest - #rest:match("^ *(.*)$"))
             local anchor, _, after = properties(body)
             local inner = after
+
             if key_colon(inner) or is_seq_entry(inner, 0) then
                 local prefix = col + (#body - #inner)
                 lines[self.i] = { text = string.rep(" ", prefix) .. inner }
                 local value = self:block(prefix, indent)
+
                 if anchor then
                     self.anchors[anchor] = value
                 end
+
                 out[n] = value
             else
                 out[n] = self:inline(body, indent)
             end
         end
     end
+
     return out
 end
 
@@ -795,10 +1018,13 @@ local function merge_into(map, source, line_no)
     if type(source) ~= "table" then
         fail(line_no, "a merge key needs a mapping or a list of mappings")
     end
+
     local list = source
+
     if source[1] == nil then
         list = { source }
     end
+
     for _, m in ipairs(list) do
         for k, v in pairs(m) do
             if map[k] == nil then
@@ -813,46 +1039,60 @@ function Parser:mapping(indent)
     local seen = {}
     local merges = {}
     local lines = self.lines
+
     while true do
         self:skip_blank()
         local text = self:current()
+
         if text == nil or indent_of(text) ~= indent then
             break
         end
+
         local body = text:sub(indent + 1)
+
         if body == "---" or body == "..." then
             break
         end
+
         if lines[self.i].tab then
             fail(self.i, "tabs may not indent")
         end
+
         local colon = key_colon(body)
+
         if colon == nil then
             if is_seq_entry(body, 0) then
                 break
             end
+
             fail(self.i, "expected a mapping key")
         end
+
         local line_no = self.i
         local raw_key = body:sub(1, colon - 1):match("^(.-)%s*$")
         local key
         local q = raw_key:sub(1, 1)
+
         if q == '"' or q == "'" then
             key = self:quoted(raw_key, 1)
         else
             local _, _, k = properties(raw_key)
             key = k
         end
+
         if seen[key] and key ~= "<<" then
             fail(line_no, `duplicate key '$key'`)
         end
+
         seen[key] = true
         local rest = body:sub(colon + 1):match("^ *(.-)$")
         local value
+
         if rest == "" or rest:sub(1, 1) == "#" then
             self.i = self.i + 1
             self:skip_blank()
             local nxt = self:current()
+
             -- A sequence may sit at the indentation of its key.
             if nxt and indent_of(nxt) == indent and is_seq_entry(nxt, indent) then
                 value = self:sequence(indent)
@@ -861,15 +1101,18 @@ function Parser:mapping(indent)
             end
         else
             local anchor, _, after = properties(rest)
+
             if after == "" then
                 self.i = self.i + 1
                 self:skip_blank()
                 local nxt = self:current()
+
                 if nxt and indent_of(nxt) == indent and is_seq_entry(nxt, indent) then
                     value = self:sequence(indent)
                 else
                     value = self:block(indent + 1, indent)
                 end
+
                 if anchor then
                     self.anchors[anchor] = value
                 end
@@ -877,15 +1120,18 @@ function Parser:mapping(indent)
                 value = self:inline(rest, indent)
             end
         end
+
         if key == "<<" and q ~= '"' and q ~= "'" then
             merges[#merges + 1] = { value, line_no }
         else
             out[key] = value
         end
     end
+
     for _, m in ipairs(merges) do
         merge_into(out, m[1], m[2])
     end
+
     return out
 end
 
@@ -894,29 +1140,39 @@ end
 function Parser:block(min_indent, parent_indent)
     self:skip_blank()
     local text = self:current()
+
     if text == nil then
         return nil
     end
+
     local indent = indent_of(text)
     local body = text:sub(indent + 1)
+
     if indent < min_indent or body == "---" or body == "..." or body:sub(1, 4) == "--- " then
         return nil
     end
+
     if is_seq_entry(text, indent) then
         return self:sequence(indent)
     end
+
     local anchor, tag, after = properties(body)
+
     if (anchor or tag) and after == "" then
         self.i = self.i + 1
         local value = self:block(min_indent, parent_indent)
+
         if anchor then
             self.anchors[anchor] = value
         end
+
         return self:apply_tag(tag, value, value, self.i)
     end
+
     if key_colon(body) then
         return self:mapping(indent)
     end
+
     return self:inline(body, parent_indent)
 end
 
@@ -926,30 +1182,38 @@ function Parser:documents()
     local docs = {}
     local count = 0
     local lines = self.lines
+
     while true do
         self:skip_blank()
         local text = self:current()
+
         if text == nil then
             break
         end
+
         local explicit = false
-        while text and text:sub(1, 1) == "%" do
+
+        while text?:sub(1, 1) == "%" do
             self.i = self.i + 1
             self:skip_blank()
             text = self:current()
         end
+
         if text == nil then
             break
         end
+
         if text == "---" or text:sub(1, 4) == "--- " then
             explicit = true
             local rest = text:sub(5):match("^ *(.-)$")
+
             if rest ~= "" and rest:sub(1, 1) ~= "#" then
                 lines[self.i] = { text = rest }
             else
                 self.i = self.i + 1
             end
         end
+
         self.anchors = {}
         self.anchor_null = {}
         local value = self:block(0, -1)
@@ -957,15 +1221,18 @@ function Parser:documents()
         docs[count] = value
         self:skip_blank()
         text = self:current()
+
         if text == "..." then
             self.i = self.i + 1
         elseif text ~= nil and text ~= "---" and text:sub(1, 4) ~= "--- " then
             fail(self.i, "unexpected content")
         end
+
         if not explicit and text == nil then
             break
         end
     end
+
     docs.n = count
     return docs
 end
@@ -984,8 +1251,7 @@ end
 --- @param text string The YAML text.
 --- @return any
 function M.decode(text)
-    local docs = new_parser(text):documents()
-    return docs[1]
+    return new_parser(text):documents()[1]
 end
 
 --- Parses every document of `text` and returns them as a list.
@@ -1004,41 +1270,53 @@ local function needs_quotes(s)
     if s == "" then
         return true
     end
+
     local v, notnull = resolve(s)
+
     if not notnull or type(v) ~= "string" then
         return true
     end
+
     if s:match("^[%s]") or s:match("[%s]$") then
         return true
     end
+
     if s:match("^[%-%?:,%[%]{}#&%*!|>'\"%%@`]") then
         if not (s:match("^[%-%?:][^%s]") and not s:match("^%-%-%-")) then
             return true
         end
     end
+
     if s:find(": ", 1, true) or s:find(" #", 1, true) or s:sub(-1) == ":" then
         return true
     end
+
     if s:find("[%c\u{85}\u{2028}\u{2029}]") then
         return true
     end
+
     return false
 end
 
+local QUOTE_ESCAPES = {
+    ["\\"] = "\\\\",
+    ['"'] = '\\"',
+    ["\n"] = "\\n",
+    ["\t"] = "\\t",
+    ["\r"] = "\\r",
+}
+
 local function quote(s)
     local escaped = s:gsub('[\\"%c]', function(c)
-        if c == "\\" then return "\\\\" end
-        if c == '"' then return '\\"' end
-        if c == "\n" then return "\\n" end
-        if c == "\t" then return "\\t" end
-        if c == "\r" then return "\\r" end
-        return string.format("\\x%02X", string.byte(c))
+        return QUOTE_ESCAPES[c] or string.format("\\x%02X", string.byte(c))
     end)
+
     return `"$escaped"`
 end
 
 local function scalar_text(v)
     local t = type(v)
+
     if v == nil then
         return "null"
     elseif t == "boolean" then
@@ -1047,6 +1325,7 @@ local function scalar_text(v)
         if math.type(v) == "integer" then
             return tostring(v)
         end
+
         if v ~= v then
             return ".nan"
         elseif v == math.huge then
@@ -1054,68 +1333,95 @@ local function scalar_text(v)
         elseif v == -math.huge then
             return "-.inf"
         end
+
         local s = string.format("%.17g", v)
+
         if tonumber(string.format("%.15g", v)) == v then
             s = string.format("%.15g", v)
         end
+
         if not s:find("[%.eEn]") then
             s = s .. ".0"
         end
+
         return s
     elseif t == "string" then
         if needs_quotes(v) then
             return quote(v)
         end
+
         return v
     end
+
     error(`yaml.encode: cannot encode a $t`, 0)
 end
 
 local function is_list(t)
     local n = #t
+
     if n == 0 then
         return next(t) == nil
     end
-    local count = 0
+
     for k in pairs(t) do
         if math.type(k) ~= "integer" or k < 1 or k > n then
             return false
         end
-        count = count + 1
     end
+
     return true
 end
 
 local function sorted_keys(t, order)
     local keys = {}
+
     for k in pairs(t) do
         if type(k) ~= "string" and type(k) ~= "number" and type(k) ~= "boolean" then
             error(`yaml.encode: cannot encode a key of type $(type(k))`, 0)
         end
+
         keys[#keys + 1] = k
     end
+
     local rank = {}
+
     if order then
         for i, k in ipairs(order) do
             rank[k] = i
         end
     end
+
     table.sort(keys, function(a, b)
         local ra, rb = rank[a], rank[b]
-        if ra and rb then return ra < rb end
-        if ra then return true end
-        if rb then return false end
+
+        if ra and rb then
+            return ra < rb
+        end
+
+        if ra then
+            return true
+        end
+
+        if rb then
+            return false
+        end
+
         return tostring(a) < tostring(b)
     end)
+
     return keys
 end
 
 local function block_string(s, pad)
-    if not s:find("\n", 1, true) or s:find("[%c]", 1) and s:gsub("\n", ""):find("%c") or s:match("^%s") then
+    if not s:find("\n", 1, true)
+        or s:find("[%c]", 1) and s:gsub("\n", ""):find("%c")
+        or s:match("^%s") then
         return nil
     end
+
     local chomp
     local trailing = #s:match("\n*$")
+
     if trailing == 0 then
         chomp = "-"
     elseif trailing == 1 then
@@ -1123,41 +1429,53 @@ local function block_string(s, pad)
     else
         chomp = "+"
     end
+
     local body = s:sub(1, #s - trailing)
-    local out = { "|" .. chomp }
+    local out = { `|$chomp` }
+
     for line in (body .. "\n"):gmatch("(.-)\n") do
         out[#out + 1] = line == "" and "" or pad .. line
     end
+
     for _ = 2, trailing do
         out[#out + 1] = ""
     end
+
     return table.concat(out, "\n")
 end
 
 local function encode(v, indent, step, order, seen, out)
     local pad = string.rep(" ", indent)
+
     if type(v) ~= "table" then
         error("yaml.encode: internal", 0)
     end
+
     if seen[v] then
         error("yaml.encode: cannot encode a table that contains itself", 0)
     end
+
     seen[v] = true
+
     if is_list(v) then
         for i = 1, #v do
             local item = v[i]
+            local block = type(item) == "string"
+                and block_string(item, pad .. string.rep(" ", step))
+
             if type(item) == "table" and next(item) ~= nil then
                 local sub = {}
                 encode(item, indent + step, step, order, seen, sub)
                 -- The first line of the item follows the dash.
                 sub[1] = `$pad- $(sub[1]:sub(indent + step + 1))`
+
                 for _, l in ipairs(sub) do
                     out[#out + 1] = l
                 end
             elseif type(item) == "table" then
                 out[#out + 1] = `$pad- $(is_list(item) and "[]" or "{}")`
-            elseif type(item) == "string" and block_string(item, pad .. string.rep(" ", step)) then
-                out[#out + 1] = `$pad- $(block_string(item, pad .. string.rep(" ", step)))`
+            elseif block then
+                out[#out + 1] = `$pad- $block`
             else
                 out[#out + 1] = `$pad- $(scalar_text(item))`
             end
@@ -1166,18 +1484,22 @@ local function encode(v, indent, step, order, seen, out)
         for _, k in ipairs(sorted_keys(v, order)) do
             local item = v[k]
             local key = scalar_text(type(k) == "string" and k or tostring(k))
+            local block = type(item) == "string"
+                and block_string(item, pad .. string.rep(" ", step))
+
             if type(item) == "table" and next(item) ~= nil then
                 out[#out + 1] = `$pad$key:`
                 encode(item, indent + step, step, order, seen, out)
             elseif type(item) == "table" then
                 out[#out + 1] = `$pad$key: {}`
-            elseif type(item) == "string" and block_string(item, pad .. string.rep(" ", step)) then
-                out[#out + 1] = `$pad$key: $(block_string(item, pad .. string.rep(" ", step)))`
+            elseif block then
+                out[#out + 1] = `$pad$key: $block`
             else
                 out[#out + 1] = `$pad$key: $(scalar_text(item))`
             end
         end
     end
+
     seen[v] = nil
 end
 
@@ -1197,15 +1519,19 @@ end
 function M.encode(value, options)
     options = options or {}
     local step = options.indent or 2
+
     if type(value) ~= "table" then
-        if type(value) == "string" and block_string(value, string.rep(" ", step)) then
-            return block_string(value, string.rep(" ", step)) .. "\n"
+        if block = type(value) == "string" and block_string(value, string.rep(" ", step)) then
+            return `$block\n`
         end
-        return scalar_text(value) .. "\n"
+
+        return `$(scalar_text(value))\n`
     end
+
     if next(value) == nil then
         return "{}\n"
     end
+
     local out = {}
     encode(value, 0, step, options.order, {}, out)
     return table.concat(out, "\n") .. "\n"

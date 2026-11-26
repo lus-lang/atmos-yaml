@@ -1,17 +1,9 @@
-# yaml
+# [yaml](https://atmosp.here/2.0/yaml)
 
-`yaml` reads and writes YAML 1.2 with the core schema.
+YAML for Lus.
 
-The following example reads a server configuration, then writes the settings of a blog.
+[Instructions for using yaml can be found here.](https://atmosp.here/2.0/yaml)
 
-```lus nocheck
-local yaml = require("https://atmosp.here/2.0/yaml.lus")
+## License
 
-local config = yaml.decode("server:\n  port: 8080\n  hosts: [web1, web2]\n")
-print(config.server.port)                    --> 8080
-print(yaml.encode({ title = "Field notes", tags = { "travel", "food" } }))
-```
-
-The package requires Lus 2.0 and declares no permissions. It never calls `pledge`, so the program that loads it keeps control of its permissions.
-
-The reference is in the doc comments of `yaml.lus`, which `lus doc yaml.lus` prints.
+`yaml` is licensed under the 0-clause BSD license. It may be used for any purpose, including commercial purposes, at no cost. [For more details, consult the license here.](LICENSE)
